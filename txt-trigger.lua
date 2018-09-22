@@ -1,6 +1,7 @@
 local obs = _G.obslua
 
 local NUM_SOURCES = 3
+local CURRENT_SCENE_OPTION = "[current scene]"
 local triggered = false
 local cachedContents = nil
 local cachedMatches = nil
@@ -9,13 +10,13 @@ local cachedSettings = {
 }
 local utils = {}
 
-local function set_sources_visibility(value)
+-- scene should be a obs_scene_t, not a obs_source_t, i.e. call
+-- obs_scene_from_source() before calling this
+local function set_sources_visibility_in_scene(visibility, scene)
   -- use visibility of scene items instead of enabling/disabling sources
   -- because enabling/disabling sources is not exposed to the frontend AFAIK,
   -- so it's confusing for users (visible scene items don't show up for seemingly
   -- no reason)
-  local sceneSource = obs.obs_frontend_get_current_scene()
-  local scene = obs.obs_scene_from_source(sceneSource)
   local sceneitems = obs.obs_scene_enum_items(scene)
 
   if sceneitems ~= nil then
@@ -23,14 +24,58 @@ local function set_sources_visibility(value)
       local source = obs.obs_sceneitem_get_source(sceneitem)
       local name = obs.obs_source_get_name(source)
       if utils.in_array(cachedSettings.sources, name) then
-        obs.obs_sceneitem_set_visible(sceneitem, value)
+        obs.obs_sceneitem_set_visible(sceneitem, visibility)
         obs.obs_source_set_enabled(source, true)
       end
     end
   end
 
   obs.sceneitem_list_release(sceneitems)
+end
+
+local function set_sources_visibility_in_all_scenes(visibility)
+  local sceneSources = obs.obs_frontend_get_scenes()
+
+  for _, sceneSource in ipairs(sceneSources) do
+    local scene = obs.obs_scene_from_source(sceneSource)
+    set_sources_visibility_in_scene(visibility, scene)
+  end
+
+  obs.source_list_release(sceneSources)
+end
+
+local function set_sources_visibility_in_current_scene(visibility)
+  local sceneSource = obs.obs_frontend_get_current_scene()
+
+  local scene = obs.obs_scene_from_source(sceneSource)
+  set_sources_visibility_in_scene(visibility, scene)
+
   obs.obs_source_release(sceneSource)
+end
+
+local function set_sources_visibility_in_scene_with_name(visibility, sceneName)
+  local sceneSources = obs.obs_frontend_get_scenes()
+
+  for _, sceneSource in ipairs(sceneSources) do
+    local name = obs.obs_source_get_name(sceneSource)
+    if name == sceneName then
+      local scene = obs.obs_scene_from_source(sceneSource)
+      set_sources_visibility_in_scene(visibility, scene)
+      break
+    end
+  end
+
+  obs.source_list_release(sceneSources)
+end
+
+local function set_sources_visibility(visibility)
+  if cachedSettings.allscenes then
+    set_sources_visibility_in_all_scenes(visibility)
+  elseif cachedSettings.scenechoice == CURRENT_SCENE_OPTION then
+    set_sources_visibility_in_current_scene(visibility)
+  else
+    set_sources_visibility_in_scene_with_name(visibility, cachedSettings.scenechoice)
+  end
 end
 
 local function reset()
@@ -131,6 +176,11 @@ local function checkboxes_update(props)
   obs.obs_property_set_enabled(contentsmatchProp, not anychange)
   obs.obs_property_set_enabled(durationProp, not contentsmatch or anychange)
 
+  local allscenes = cachedSettings.allscenes
+
+  local scenechoiceProp = obs.obs_properties_get(props, "scenechoice")
+  obs.obs_property_set_enabled(scenechoiceProp, not allscenes)
+
   -- return true to update property widgets
   return true
 end
@@ -155,6 +205,7 @@ function _G.script_properties()
 
   obs.obs_properties_add_int(props, "duration", "Source visibility\nduration (seconds)", 1, 100000, 1)
 
+  -- source choice
   local sources = obs.obs_enum_sources()
   for i=1,NUM_SOURCES do
     local p = obs.obs_properties_add_list(props, "source" .. i, "Source " .. i, obs.OBS_COMBO_TYPE_EDITABLE, obs.OBS_COMBO_FORMAT_STRING)
@@ -167,6 +218,22 @@ function _G.script_properties()
   end
   obs.source_list_release(sources)
 
+  -- scene choice
+  local allscenes = obs.obs_properties_add_bool(props, "allscenes", "Affect all scenes")
+  obs.obs_property_set_modified_callback(allscenes, checkboxes_update)
+
+  local scenechoice = obs.obs_properties_add_list(props, "scenechoice", "Only affect scene", obs.OBS_COMBO_TYPE_EDITABLE, obs.OBS_COMBO_FORMAT_STRING)
+  obs.obs_property_set_long_description(scenechoice, "NOTE: The [current scene] option can behave incorrectly if the\nscene is switched while the trigger is active")
+  obs.obs_property_list_add_string(scenechoice, CURRENT_SCENE_OPTION, CURRENT_SCENE_OPTION)
+
+  local sceneSources = obs.obs_frontend_get_scenes()
+  for _, sceneSource in ipairs(sceneSources) do
+    local name = obs.obs_source_get_name(sceneSource)
+    obs.obs_property_list_add_string(scenechoice, name, name)
+  end
+  obs.source_list_release(sceneSources)
+
+  -- enable/disable stuff based on the settings
   checkboxes_update(props)
 
   return props
@@ -192,6 +259,9 @@ function _G.script_update(settings)
     cachedSettings.sources[i] = obs.obs_data_get_string(settings, "source"..i)
   end
 
+  cachedSettings.allscenes = obs.obs_data_get_bool(settings, "allscenes")
+  cachedSettings.scenechoice = obs.obs_data_get_string(settings, "scenechoice")
+
   -- this might be better if its called when the setting actually changes, but
   -- its not a big deal to reset the timer whenever other settings change
   setup_check_callback(cachedSettings.triggerperiod)
@@ -204,6 +274,8 @@ function _G.script_defaults(settings)
   obs.obs_data_set_default_bool(settings, "anychange", false)
   obs.obs_data_set_default_string(settings, "contents", ".+")
   obs.obs_data_set_default_int(settings, "triggerperiod", 1000)
+  obs.obs_data_set_default_bool(settings, "allscenes", true)
+  obs.obs_data_set_default_string(settings, "scenechoice", CURRENT_SCENE_OPTION)
 end
 
 -- A function named script_save will be called when the script is saved
