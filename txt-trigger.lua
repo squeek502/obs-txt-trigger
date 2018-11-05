@@ -94,11 +94,6 @@ local function trigger(duration)
   set_sources_visibility(true)
 end
 
-local function prime()
-  cachedContents = utils.get_file_contents(cachedSettings.file)
-  cachedMatches = nil
-end
-
 local function should_check()
   if cachedSettings.file == "" then
     return false
@@ -114,14 +109,13 @@ end
 local function check_callback()
   if should_check() then
     local contents = utils.get_file_contents(cachedSettings.file)
-
-    if contents == cachedContents then
-      return
-    end
+    local contentsChanged = contents ~= cachedContents
 
     if cachedSettings.anychange then
-      trigger(cachedSettings.duration)
-    else
+      if contentsChanged then
+        trigger(cachedSettings.duration)
+      end
+    elseif not cachedMatches or contentsChanged then
       local matches = contents:gsub("%s+$", ""):match(cachedSettings.contents)
       if matches and not cachedMatches then
         local duration = cachedSettings.duration
@@ -161,6 +155,14 @@ function utils.in_array(tbl, value)
     end
   end
   return false
+end
+
+local function reload()
+  cachedContents = utils.get_file_contents(cachedSettings.file)
+  cachedMatches = nil
+  reset()
+  check_callback()
+  setup_check_callback(cachedSettings.triggerperiod)
 end
 
 -- script_update gets called before modified callbacks, so cachedSettings gets updated there
@@ -247,6 +249,9 @@ end
 
 -- A function named script_update will be called when settings are changed
 function _G.script_update(settings)
+  -- reset before the settings are updated
+  reset()
+
   cachedSettings.file = obs.obs_data_get_string(settings, "file")
   cachedSettings.triggerperiod = obs.obs_data_get_int(settings, "triggerperiod")
 
@@ -264,8 +269,7 @@ function _G.script_update(settings)
 
   -- this might be better if its called when the setting actually changes, but
   -- its not a big deal to reset the timer whenever other settings change
-  setup_check_callback(cachedSettings.triggerperiod)
-  prime()
+  reload()
 end
 
 -- A function named script_defaults will be called to set the default settings
@@ -287,6 +291,31 @@ function _G.script_save(settings)
 
 end
 
+local function is_frontend_ready()
+  -- this isn't foolproof--just because get_current_scene returns non-nil
+  -- it's not necessarily true that everything is fully loaded.
+  -- there's probably a better way to check this
+  local scene = obs.obs_frontend_get_current_scene()
+  local ready = scene ~= nil
+  obs.obs_source_release(scene)
+  return ready
+end
+
+local function try_first_load()
+  if is_frontend_ready() then
+    obs.timer_remove(try_first_load)
+    reload()
+  end
+end
+
 -- a function named script_load will be called on startup
 function _G.script_load(settings)
+  -- on OBS startup, these script functions are called before the frontend is loaded
+  -- so delay the actual scene visibility stuff until the frontend exists
+  if not is_frontend_ready() then
+    -- use a full second timer period just to ensure things have a chance to load;
+    -- with a smaller interval, we could still be in a partially loaded state
+    -- which can lead to weird behavior
+    obs.timer_add(try_first_load, 1000)
+  end
 end
