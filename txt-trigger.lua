@@ -109,6 +109,9 @@ end
 local function check_callback()
   if should_check() then
     local contents = utils.get_file_contents(cachedSettings.file)
+    if contents == nil then
+      return
+    end
     local contentsChanged = contents ~= cachedContents
 
     if cachedSettings.anychange then
