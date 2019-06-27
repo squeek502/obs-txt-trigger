@@ -26,6 +26,12 @@ local function set_sources_visibility_in_scene(visibility, scene)
       if utils.in_array(cachedSettings.sources, name) then
         obs.obs_sceneitem_set_visible(sceneitem, visibility)
         obs.obs_source_set_enabled(source, true)
+
+        -- force an update so that things like Text sources that read from a file
+        -- get their string updated
+        local settings = obs.obs_data_create()
+        obs.obs_source_update(source, settings)
+        obs.obs_data_release(settings)
       end
     end
   end
