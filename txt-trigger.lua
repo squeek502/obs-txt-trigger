@@ -3,6 +3,7 @@ local obs = _G.obslua
 local NUM_SOURCES = 3
 local CURRENT_SCENE_OPTION = "[current scene]"
 local triggered = false
+local triggerCallback = nil
 local cachedContents = nil
 local cachedMatches = nil
 local cachedSettings = {
@@ -83,15 +84,34 @@ local function reset()
   obs.timer_remove(reset)
 
   set_sources_visibility(false)
+
+  if triggerCallback then
+    obs.timer_remove(triggerCallback)
+    triggerCallback = nil
+  end
 end
 
 local function trigger(duration)
-  triggered = true
   if duration then
     obs.timer_add(reset, duration*1000)
   end
 
   set_sources_visibility(true)
+end
+
+local function setup_trigger(duration)
+  triggered = true
+  local delay = cachedSettings.delay
+  if delay > 0 then
+    triggerCallback = function()
+      trigger(duration)
+      obs.timer_remove(triggerCallback)
+      triggerCallback = nil
+    end
+    obs.timer_add(triggerCallback, delay)
+  else
+    trigger(duration)
+  end
 end
 
 local function should_check()
@@ -116,7 +136,7 @@ local function check_callback()
 
     if cachedSettings.anychange then
       if contentsChanged then
-        trigger(cachedSettings.duration)
+        setup_trigger(cachedSettings.duration)
       end
     elseif not cachedMatches or contentsChanged then
       local matches = contents:gsub("%s+$", ""):match(cachedSettings.contents)
@@ -125,7 +145,7 @@ local function check_callback()
         if cachedSettings.contentsmatch then
           duration = nil
         end
-        trigger(duration)
+        setup_trigger(duration)
       elseif not matches and triggered and cachedSettings.contentsmatch then
         reset()
       end
@@ -209,6 +229,7 @@ function _G.script_properties()
   obs.obs_property_set_modified_callback(contentsmatch, checkboxes_update)
 
   obs.obs_properties_add_int(props, "duration", "Source visibility\nduration (seconds)", 1, 100000, 1)
+  obs.obs_properties_add_int(props, "delay", "Source visibility\ndelay (milliseconds)", 0, 100000, 100)
 
   -- source choice
   local sources = obs.obs_enum_sources()
@@ -262,6 +283,7 @@ function _G.script_update(settings)
   cachedSettings.contents = obs.obs_data_get_string(settings, "contents")
   cachedSettings.contentsmatch = obs.obs_data_get_bool(settings, "contentsmatch")
   cachedSettings.duration = obs.obs_data_get_int(settings, "duration")
+  cachedSettings.delay = obs.obs_data_get_int(settings, "delay")
 
   for i=1,NUM_SOURCES do
     cachedSettings.sources[i] = obs.obs_data_get_string(settings, "source"..i)
@@ -281,6 +303,7 @@ function _G.script_defaults(settings)
   obs.obs_data_set_default_bool(settings, "anychange", false)
   obs.obs_data_set_default_string(settings, "contents", ".+")
   obs.obs_data_set_default_int(settings, "triggerperiod", 1000)
+  obs.obs_data_set_default_int(settings, "delay", 0)
   obs.obs_data_set_default_bool(settings, "allscenes", true)
   obs.obs_data_set_default_string(settings, "scenechoice", CURRENT_SCENE_OPTION)
 end
