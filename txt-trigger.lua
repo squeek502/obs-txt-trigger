@@ -24,9 +24,21 @@ local function set_sources_visibility_in_scene(visibility, scene)
     for _, sceneitem in ipairs(sceneitems) do
       local source = obs.obs_sceneitem_get_source(sceneitem)
       local name = obs.obs_source_get_name(source)
+
       if utils.in_array(cachedSettings.sources, name) then
         obs.obs_sceneitem_set_visible(sceneitem, visibility)
         obs.obs_source_set_enabled(source, true)
+      end
+
+      -- need to enumerate groups recursively as well, scene_enum_items only seems to
+      -- give us 'top level' sceneitems
+      if obs.obs_sceneitem_is_group(sceneitem) then
+        -- obs_sceneitem_group_enum_items also exists but it doesn't
+        -- currently seem to be bound in a way that's very usable by lua,
+        -- so instead we use this to get the group as a scene and call
+        -- obs_scene_enum_items recursively
+        local group_as_scene = obs.obs_group_from_source(source)
+        set_sources_visibility_in_scene(visibility, group_as_scene)
       end
     end
   end
