@@ -147,7 +147,12 @@ local function check_callback()
     local contentsChanged = contents ~= cachedContents
 
     if cachedSettings.anychange then
-      if contentsChanged then
+      local shouldTrigger = true
+      if cachedSettings.anychange_onlynonempty then
+        local trimmedContents = contents:gsub("%s+$", "")
+        shouldTrigger = trimmedContents ~= ""
+      end
+      if contentsChanged and shouldTrigger then
         setup_trigger(cachedSettings.duration)
       end
     elseif not cachedMatches or contentsChanged then
@@ -209,9 +214,11 @@ local function checkboxes_update(props)
   local contentsProp = obs.obs_properties_get(props, "contents")
   local contentsmatchProp = obs.obs_properties_get(props, "contentsmatch")
   local durationProp = obs.obs_properties_get(props, "duration")
+  local onlyNonEmptyProp = obs.obs_properties_get(props, "anychange_onlynonempty")
   obs.obs_property_set_enabled(contentsProp, not anychange)
   obs.obs_property_set_enabled(contentsmatchProp, not anychange)
   obs.obs_property_set_enabled(durationProp, not contentsmatch or anychange)
+  obs.obs_property_set_enabled(onlyNonEmptyProp, anychange)
 
   local allscenes = cachedSettings.allscenes
 
@@ -233,6 +240,9 @@ function _G.script_properties()
 
   local anychange = obs.obs_properties_add_bool(props, "anychange", "Trigger on any change in file contents")
   obs.obs_property_set_modified_callback(anychange, checkboxes_update)
+
+  local anychange_onlynonempty = obs.obs_properties_add_bool(props, "anychange_onlynonempty", "(except when file becomes empty)")
+  obs.obs_property_set_modified_callback(anychange_onlynonempty, checkboxes_update)
 
   local contents = obs.obs_properties_add_text(props, "contents", "Trigger when file\ncontents match pattern", obs.OBS_TEXT_DEFAULT)
   obs.obs_property_set_long_description(contents, "Uses Lua pattern matching, see https://www.lua.org/pil/20.2.html\n\nThe default pattern of .+ will trigger whenever the file is non-empty\n\nNOTE: Whitespace characters (spaces, newlines, carriage returns, etc)\nare stripped from the end of the file before matching")
@@ -292,6 +302,7 @@ function _G.script_update(settings)
   cachedSettings.triggerperiod = obs.obs_data_get_int(settings, "triggerperiod")
 
   cachedSettings.anychange = obs.obs_data_get_bool(settings, "anychange")
+  cachedSettings.anychange_onlynonempty = obs.obs_data_get_bool(settings, "anychange_onlynonempty")
   cachedSettings.contents = obs.obs_data_get_string(settings, "contents")
   cachedSettings.contentsmatch = obs.obs_data_get_bool(settings, "contentsmatch")
   cachedSettings.duration = obs.obs_data_get_int(settings, "duration")
@@ -313,6 +324,7 @@ end
 function _G.script_defaults(settings)
   obs.obs_data_set_default_int(settings, "duration", 5)
   obs.obs_data_set_default_bool(settings, "anychange", false)
+  obs.obs_data_set_default_bool(settings, "anychange_onlynonempty", false)
   obs.obs_data_set_default_string(settings, "contents", ".+")
   obs.obs_data_set_default_int(settings, "triggerperiod", 1000)
   obs.obs_data_set_default_int(settings, "delay", 0)
