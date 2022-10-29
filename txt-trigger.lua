@@ -115,6 +115,10 @@ local function setup_trigger(duration)
   triggered = true
   local delay = cachedSettings.delay
   if delay > 0 then
+    if triggerCallback then
+      obs.timer_remove(triggerCallback)
+      triggerCallback = nil
+    end
     triggerCallback = function()
       trigger(duration)
       obs.timer_remove(triggerCallback)
