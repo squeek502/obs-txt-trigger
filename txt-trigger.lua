@@ -105,6 +105,7 @@ end
 
 local function trigger(duration)
   if duration then
+    obs.timer_remove(reset)
     obs.timer_add(reset, duration*1000)
   end
 
@@ -136,7 +137,7 @@ local function should_check()
   end
 
   if triggered then
-    return cachedSettings.contentsmatch
+    return cachedSettings.contentsmatch or cachedSettings.extendvisibility
   end
 
   return not triggered
@@ -219,9 +220,11 @@ local function checkboxes_update(props)
   local contentsmatchProp = obs.obs_properties_get(props, "contentsmatch")
   local durationProp = obs.obs_properties_get(props, "duration")
   local onlyNonEmptyProp = obs.obs_properties_get(props, "anychange_onlynonempty")
+  local extendvisibilityProp = obs.obs_properties_get(props, "extendvisibility")
   obs.obs_property_set_enabled(contentsProp, not anychange)
   obs.obs_property_set_enabled(contentsmatchProp, not anychange)
   obs.obs_property_set_enabled(durationProp, not contentsmatch or anychange)
+  obs.obs_property_set_enabled(extendvisibilityProp, not contentsmatch)
   obs.obs_property_set_enabled(onlyNonEmptyProp, anychange)
 
   local allscenes = cachedSettings.allscenes
@@ -255,6 +258,9 @@ function _G.script_properties()
   obs.obs_property_set_modified_callback(contentsmatch, checkboxes_update)
 
   obs.obs_properties_add_int(props, "duration", "Source visibility\nduration (seconds)", 1, 100000, 1)
+  local extendvisibility = obs.obs_properties_add_bool(props, "extendvisibility", "Extend visibility on re-trigger")
+  obs.obs_property_set_long_description(extendvisibility, "If enabled, any triggers during the visibility period will extend the visibility period by the duration.\nIf disabled, any triggers during the visibility period will be ignored.")
+
   obs.obs_properties_add_int(props, "delay", "Source visibility\ndelay (milliseconds)", 0, 100000, 100)
 
   -- source choice
@@ -310,6 +316,7 @@ function _G.script_update(settings)
   cachedSettings.contents = obs.obs_data_get_string(settings, "contents")
   cachedSettings.contentsmatch = obs.obs_data_get_bool(settings, "contentsmatch")
   cachedSettings.duration = obs.obs_data_get_int(settings, "duration")
+  cachedSettings.extendvisibility = obs.obs_data_get_bool(settings, "extendvisibility")
   cachedSettings.delay = obs.obs_data_get_int(settings, "delay")
 
   for i=1,NUM_SOURCES do
@@ -331,6 +338,7 @@ function _G.script_defaults(settings)
   obs.obs_data_set_default_bool(settings, "anychange_onlynonempty", false)
   obs.obs_data_set_default_string(settings, "contents", ".+")
   obs.obs_data_set_default_int(settings, "triggerperiod", 1000)
+  obs.obs_data_set_default_bool(settings, "extendvisibility", true)
   obs.obs_data_set_default_int(settings, "delay", 0)
   obs.obs_data_set_default_bool(settings, "allscenes", true)
   obs.obs_data_set_default_string(settings, "scenechoice", CURRENT_SCENE_OPTION)
